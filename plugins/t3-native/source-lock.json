@@ -1,0 +1,51 @@
+{
+  "upstream": {
+    "repository": "https://github.com/pingdotgg/t3code",
+    "tag": "v0.1.8-nightly.20261104.4179",
+    "commit": "9e85538535c8553901351112ab02dd1dd62db5ee",
+    "license": "MIT",
+    "licenseCopyright": "Copyright (c) 2026 T3 Tools Inc.",
+    "licenseSha256": "935d8f2af0c703f9c39517ee57cc4930b19d02d533be930b63f0e82f93614b43"
+  },
+  "nativeConnector": {
+    "route": "/mcp",
+    "authentication": "OAuth",
+    "clientSecretRequired": false,
+    "observedServerVersion": "0.1.8-nightly.20261104.4179",
+    "observationalValidationDate": "2026-11-06",
+    "observedOperations": [
+      "t3_environment_read",
+      "t3_project_list",
+      "t3_thread_read",
+      "t3_thread_launch",
+      "t3_thread_send",
+      "t3_thread_wait"
+    ],
+    "liveHostnameVerified": false
+  },
+  "sourceDependency": {
+    "type": "git-submodule",
+    "path": "vendor/t3code",
+    "pinnedCommit": "9e85538535c8553901351112ab02dd1dd62db5ee",
+    "buildRequirements": {
+      "node": "26.12.1",
+      "pnpm": "12.14.0"
+    },
+    "buildCommand": "vp run --filter './apps/*' build",
+    "testCommand": "vp run -r test",
+    "sourcePaths": [
+      "apps/server/src/mcp",
+      "apps/server/src/auth",
+      "apps/server/src/cloud",
+      "apps/server/src/environment",
+      "docs/user/outside-agents.md",
+      "docs/user/faq.md"
+    ]
+  },
+  "scope": {
+    "nativeBinaryIncluded": false,
+    "buildReproduced": false,
+    "liveHostnameVerified": false,
+    "customAdapterDeploymentVerified": false
+  }
+}
