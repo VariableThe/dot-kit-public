@@ -31,4 +31,4 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m pytest plugins/ecosystem_connectivity/tests
 PYTHONDONTWRITEBYTECODE=1 python3 -m pytest plugins/ecosystem_connectivity/t3mcp_adapter/tests/ -p no:cacheprovider
 ```
 
-The reviewed export passed 301 tests plus 106 subtests. No live T3 or Beeper operation is part of those tests.
+The included test suites use synthetic fixtures and run offline; they do not perform live T3 or Beeper operations.
