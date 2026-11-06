@@ -1,0 +1,13 @@
+interface:
+  display_name: Use Beeper locally
+  short_description: "Use Beeper via a local MCP bridge"
+  default_prompt: "Use $use-beeper-local to check an existing Beeper connection."
+  icon_small: assets/icon.svg
+  icon_large: assets/icon.svg
+policy:
+  products:
+  - chatgpt
+  - codex
+  - api
+  - atlas
+  allow_implicit_invocation: true

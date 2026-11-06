@@ -1,0 +1,14 @@
+interface:
+  display_name: Control T3 Code threads
+  short_description: Coordinate authorized T3 work through verified hosts
+  default_prompt: Use $start-t3-thread to inspect or coordinate my authorized T3 Code
+    task on the selected host.
+  icon_small: assets/icon.svg
+  icon_large: assets/icon.svg
+policy:
+  products:
+  - chatgpt
+  - codex
+  - api
+  - atlas
+  allow_implicit_invocation: true

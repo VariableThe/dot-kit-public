@@ -1,0 +1,84 @@
+{
+  "search_chats": {
+    "properties": {
+      "accountIDs": {
+        "description": "Provide an array of account IDs to filter chats from specific messaging accounts only",
+        "items": {
+          "description": "Account ID this resource belongs to.",
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "cursor": {
+        "description": "Opaque pagination cursor; do not inspect. Use together with 'direction'.",
+        "type": "string"
+      },
+      "direction": {
+        "description": "Pagination direction used with 'cursor': 'before' fetches older results, 'after' fetches newer results. Defaults to 'before' when only 'cursor' is provided.",
+        "enum": ["after", "before"],
+        "type": "string"
+      },
+      "inbox": {
+        "description": "Filter by inbox type: \"primary\" (non-archived, non-low-priority), \"low-priority\", or \"archive\". If not specified, shows all chats.",
+        "enum": ["primary", "low-priority", "archive"],
+        "type": "string"
+      },
+      "includeMuted": {
+        "description": "Include chats marked as Muted by the user, which are usually less important. Default: true. Set to false if the user wants a more refined search.",
+        "type": "boolean"
+      },
+      "lastActivityAfter": {
+        "description": "Provide an ISO datetime string to only retrieve chats with last activity after this time",
+        "format": "date-time",
+        "type": "string"
+      },
+      "lastActivityBefore": {
+        "description": "Provide an ISO datetime string to only retrieve chats with last activity before this time",
+        "format": "date-time",
+        "type": "string"
+      },
+      "limit": {
+        "description": "Set the maximum number of chats to retrieve. Valid range: 1-200, default is 50",
+        "type": "integer"
+      },
+      "query": {
+        "description": "Literal token search (non-semantic). Use single words users type (e.g., \"dinner\"). When multiple words provided, ALL must match. Case-insensitive.",
+        "type": "string"
+      },
+      "scope": {
+        "description": "Search scope: 'titles' matches title + network; 'participants' matches participant names.",
+        "enum": ["titles", "participants"],
+        "type": "string"
+      },
+      "type": {
+        "description": "Specify the type of chats to retrieve: use \"single\" for direct messages, \"group\" for group chats, or \"any\" to get all types",
+        "type": "string"
+      },
+      "unreadOnly": {
+        "description": "Set to true to only retrieve chats with unread messages",
+        "type": "boolean"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "list_messages": {
+    "properties": {
+      "chatID": {
+        "description": "Unique identifier of the chat.",
+        "type": "string"
+      },
+      "cursor": {
+        "description": "Opaque pagination cursor; do not inspect. Use together with 'direction'.",
+        "type": "string"
+      },
+      "direction": {
+        "description": "Pagination direction used with 'cursor': 'before' fetches older results, 'after' fetches newer results. Defaults to 'before' when only 'cursor' is provided.",
+        "enum": ["after", "before"],
+        "type": "string"
+      }
+    },
+    "required": ["chatID"],
+    "type": "object"
+  }
+}

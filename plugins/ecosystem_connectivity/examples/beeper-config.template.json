@@ -1,0 +1,21 @@
+{
+  "resource": "https://mcp.example.invalid/private/beeper",
+  "issuer": "https://issuer.example.invalid/REPLACE_WITH_EXACT_ISSUER_PATH",
+  "jwks": {
+    "keys": [
+      {
+        "kty": "RSA",
+        "kid": "REPLACE_WITH_TRUSTED_PUBLIC_KEY_ID",
+        "alg": "RS256",
+        "use": "sig",
+        "key_ops": ["verify"],
+        "n": "REPLACE_WITH_TRUSTED_RSA_MODULUS_BASE64URL",
+        "e": "REPLACE_WITH_TRUSTED_RSA_EXPONENT_BASE64URL"
+      }
+    ]
+  },
+  "chat_entitlements": {
+    "REPLACE_WITH_EXACT_VERIFIED_SUBJECT": ["REPLACE_WITH_EXPLICIT_ALLOWED_CHAT_ID"]
+  },
+  "beeper_url": "http://127.0.0.1:1/REPLACE_WITH_VERIFIED_LOCAL_BEEPER_PATH"
+}
