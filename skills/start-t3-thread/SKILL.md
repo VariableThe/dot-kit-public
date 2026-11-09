@@ -37,3 +37,7 @@ Read-only inspection needs only the service's read permission. Launching, sendin
 - Report completed work, remaining limitations, and exact blockers separately.
 
 Do not install services, open ports, mint tokens, or alter authentication as an automatic repair. Request the necessary authorization and use the existing supported route.
+
+## Keep completion ownership
+
+After each authorized launch or follow-up, apply the [native connector completion workflow](../../plugins/t3-native/COMPLETION_MONITOR.md). Keep one native watcher and a durable record for the exact environment/thread/run, including the original read boundary, acceptance criteria, owner and handled-result IDs. Renew bounded event waits after timeout without a native wake contract; do not abandon an unfinished run. Wait for delegated work to settle, read the final reply immediately, verify artifacts, and report useful results or exact blockers. Preserve unfinished ownership after connection errors or execution limits. The helper is caller-side and does not create automatic server-to-dot notifications.

@@ -1,11 +1,11 @@
 # Native T3 Code connector
 
-This directory documents the native T3 Code MCP connector and pins its upstream source. It does not contain or modify the T3 engine.
+This directory documents the native T3 Code MCP connector, pins its upstream source, and provides a caller-side completion monitor. It does not contain or modify the T3 engine.
 
 ## Status
 
 - Working connector: native T3 Code feature, not this repository's Python adapter.
-- Observed server version: `0.1.8-nightly.20261104.4179`
+- Latest completion-test server version: `0.1.8-nightly.20261107.4340` (2026-11-09). The source pin below remains the historical 2026-11-06 dependency, not a reproduced build of this runtime.
 - Native MCP route: `/mcp`
 - Public hostname/ingress mapping was not fully verified from non-secret metadata.
 
@@ -56,3 +56,7 @@ The Python adapter under plugins/ecosystem_connectivity is included separately. 
 - The public hostname/ingress chain was not fully verified from non-secret local metadata.
 - The upstream source is referenced, not copied, except through the pinned submodule.
 - No service, credential, tunnel, or runtime configuration was changed by this repository.
+
+## Completion monitoring
+
+Use the [caller-side completion monitor](COMPLETION_MONITOR.md) after each authorized launch or follow-up. It pairs the native event wait with immediate result retrieval, durable caller-owned checkpoints and a conservative completion guard. It does not add a server callback or run automatically when installed.
