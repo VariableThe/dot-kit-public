@@ -42,3 +42,7 @@ These tests do not contact live T3 or Beeper services, build upstream T3, or est
 ## Licensing
 
 The pinned upstream T3 source has its own MIT license and third-party notices, preserved in the submodule. No license has been selected for this repository's original content; publication alone is not a general license grant.
+
+## T3 completion monitor
+
+The native connector integration includes a [caller-side completion monitor](plugins/t3-native/COMPLETION_MONITOR.md). It keeps event-wait and result-read handling together while leaving task ownership, durable storage, permissions and user delivery with the caller.
