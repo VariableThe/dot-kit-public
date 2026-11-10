@@ -86,3 +86,15 @@ test('abort during the terminal checkpoint overrides ready handoff',async()=>{
  const h=harness([wait(),read()],{signal:controller.signal,checkpoint:async record=>{records.push(record);if(record.state==='ready_for_review')controller.abort();}});
  const result=await h.run();assert.equal(result.state,'watch_stopped');assert.equal(records.at(-1).state,'watch_stopped');
 });
+for (const [name,alter,expected] of [
+ ['wrong thread',w=>{w.threadId='other';},'target_mismatch'],
+ ['wrong original run',w=>{w.runId='other';},'run_changed'],
+ ['unverified continuation',w=>{w.resultRun.runId='other';},'result_run_changed'],
+ ['unverified failed continuation',w=>{w.resultRun={runId:'other',status:'failed'};},'result_run_changed'],
+]) test(`pre-read gate rejects ${name} without acknowledging a child result`,async()=>{
+ const w=wait();alter(w);const h=harness([w]);const r=await h.run();assert.equal(r.state,expected);assert.deepEqual(h.calls.map(c=>c.name),['t3_thread_wait']);
+});
+
+test('fresh-run negative sentinel is never sent as a native API cursor',async()=>{
+ const h=harness([wait(),read()],{target:{...target,afterPosition:-1}});assert.equal((await h.run()).state,'ready_for_review');assert.equal('afterPosition' in h.calls[1].args,false);
+});

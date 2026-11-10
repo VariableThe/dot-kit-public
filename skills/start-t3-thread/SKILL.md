@@ -41,3 +41,14 @@ Do not install services, open ports, mint tokens, or alter authentication as an 
 ## Keep completion ownership
 
 After each authorized launch or follow-up, apply the [native connector completion workflow](../../plugins/t3-native/COMPLETION_MONITOR.md). Keep one native watcher and a durable record for the exact environment/thread/run, including the original read boundary, acceptance criteria, owner and handled-result IDs. Renew bounded event waits after timeout without a native wake contract; do not abandon an unfinished run. Wait for delegated work to settle, read the final reply immediately, verify artifacts, and report useful results or exact blockers. Preserve unfinished ownership after connection errors or execution limits. The helper is caller-side and does not create automatic server-to-dot notifications.
+
+
+## Required executable monitoring route
+
+Use the active `runAndMonitor` wrapper from [ACTIVE_MONITOR.md](../../plugins/t3-native/ACTIVE_MONITOR.md) for every authorized T3 launch/send. Assign a native worker before dispatch and keep one awaited execution responsible for dispatch, exact-run event waits and immediate validated result retrieval. Do not use raw launch/send then promise to attach a watcher later. If the installed runtime or durable journal is unavailable, stop before dispatch and report the blocker.
+
+On the selected computer the installed runtime is `$HOME/.local/share/dot-t3-monitor/active-runtime.js`, with `completion-journal.py` alongside it and journal metadata under `$HOME/.config/agent-kit/t3-completion`. Resolve HOME and verify files on that computer. Load the generated bundle, use its `createToolBridge` with the existing native T3 callbacks, and follow the executable recipe. No credentials, new server or alternate transport are needed.
+
+The current native launch/send interfaces support `clientRequestId`; preserve it and identical arguments after uncertainty. The wrapper never retries mutations automatically. Resume a known operation with `method:"resume"`, preserving exact IDs and the original read boundary. Do not change an unclear result to success or launch replacement work. For a verified delegated continuation, supply the exact result run IDs and an authoritative evidence reference.
+
+A live same-thread watcher blocks a separate send before dispatch. Serialize an explicit watcher handoff rather than bypassing it. Parent review and user delivery are separate journal states. Installing these files is not a daemon or universal interception; only routed operations are automatically monitored. If all execution dies, the record requires a later authorized resume unless a separately verified scheduler exists. Cloud skill changes and publication must be confirmed separately; local files do not update them.

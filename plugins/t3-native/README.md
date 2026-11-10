@@ -60,3 +60,8 @@ The Python adapter under plugins/ecosystem_connectivity is included separately. 
 ## Completion monitoring
 
 Use the [caller-side completion monitor](COMPLETION_MONITOR.md) after each authorized launch or follow-up. It pairs the native event wait with immediate result retrieval, durable caller-owned checkpoints and a conservative completion guard. It does not add a server callback or run automatically when installed.
+
+
+## Required active operation route
+
+Use [ACTIVE_MONITOR.md](ACTIVE_MONITOR.md) and the executable `runAndMonitor` wrapper for every authorized launch/send in this workflow. It attaches the exact-run monitor before returning; the lower-level helper alone is not activation. This is caller-owned, not a daemon or global native-tool hook.
