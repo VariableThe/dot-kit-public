@@ -1,5 +1,5 @@
 /** Caller-owned T3 wait/read loop. Child-result reads may acknowledge delivery. */
-import { classifyCompletion, payload } from './completion-guard.mjs';
+import { classifyCompletion, payload } from './completion-core.mjs';
 
 const TRANSIENT = new Set(['timeout', 'connection_error', 'network_error', 'deadline_exceeded', 'ECONNRESET', 'ETIMEDOUT']);
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -24,7 +24,7 @@ function toolError(value) {
 export async function monitorCompletion({
   target, callTool, checkpoint, signal, sleep = pause, now = Date.now,
   timeoutMs = 60000, maxWaits = 60, maxReadAttempts = 3, maxPages = 50,
-  handledResultRunIds = [],
+  handledResultRunIds = [], skipInitialWatching = false,
 }) {
   if (!target || !['environmentId','threadId','runId'].every(k => typeof target[k] === 'string' && target[k]))
     throw new TypeError('Verified environment, thread and run IDs are required');
@@ -68,7 +68,7 @@ export async function monitorCompletion({
   };
   const readPage = afterPosition => call('t3_thread_read', {
     threadId:target.threadId, view:'messages', limit:50, maxCharsPerItem:5000, runLimit:10,
-    ...(afterPosition == null ? {} : {afterPosition}),
+    ...(Number.isInteger(afterPosition) && afterPosition >= 0 ? {afterPosition} : {}),
   });
   const finalRead = async resultRunId => {
     const items = []; let position = target.afterPosition ?? null; let last;
@@ -83,6 +83,8 @@ export async function monitorCompletion({
         throw Object.assign(new Error('Pagination did not advance'), {code:'invalid_response'});
       position=last.nextPosition;
     }
+    if (last?.hasMore !== false)
+      throw Object.assign(new Error('Pagination budget exhausted'),{code:'pagination_budget_exhausted'});
     if (last?.hasMore === false) {
       const reply=items.findLast(item => item.runId===resultRunId && item.type==='assistant_message');
       if (reply?.textTruncated === true) {
@@ -106,15 +108,21 @@ export async function monitorCompletion({
     return {...last,items};
   };
   // Checkpoint failure must stop the watch, never silently discard durability.
-  await save('watching');
+  // A caller that durably wrote the initial watching state in an adjacent batch
+  // may skip this duplicate; the pre-wait fence below is never skipped.
+  if (!skipInitialWatching) await save('watching');
   try {
     for (;waits<maxWaits;) {
       if (signal?.aborted) return finish({state:'watch_stopped',next:'Preserve the unfinished record and return ownership to the parent.'});
       waits+=1;
       const wait=await call('t3_thread_wait',{threadId:target.threadId,runId:target.runId,timeoutMs,untilDelegatedWorkSettled:true});
       const waitReceivedAt=new Date(now()).toISOString();
-      // Read immediately in the same execution, before any model turn or unrelated work.
-      const read=wait.timedOut===true ? await readPage(cursor) : await finalRead(wait.resultRun?.runId ?? wait.runId);
+      // Reading a child can acknowledge delivery. Validate identity BEFORE reading.
+      const beforeRead=classifyCompletion({expected,wait,handledResultRunIds});
+      if (!['waiting','blocked','run_ended_unsuccessfully','needs_result_read'].includes(beforeRead.state))
+        return finish(beforeRead,{wait,waitReceivedAt});
+      // Read immediately in this execution, with a validated result identity.
+      const read=wait.timedOut===true ? await readPage(cursor) : await finalRead(beforeRead.resultRunId ?? wait.runId);
       if (Number.isInteger(read.nextPosition)) cursor=read.nextPosition;
       const decision=classifyCompletion({expected,wait,read,handledResultRunIds});
       if (decision.state==='waiting') {await save('waiting');continue;}
