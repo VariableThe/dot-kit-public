@@ -221,6 +221,72 @@ test('batch bridge rejects malformed success, bad records and an unclosed lease'
   }).journalBatch([checkpoint], { operationId: 'op', owner: '', generation: 1 }), e => e.code === 'batch_invalid_response');
 });
 
+test('batch bridge accepts a JSON-cloned array field and rejects changed array contents, order or types', async () => {
+  const toolMap = Object.fromEntries(names.map(name => [name, async () => ({})]));
+  const fence = { operationId: 'op', owner: 'worker', generation: 1 };
+  const expected = ['run-a', 'run-b'];
+  const checkpoint = { action: 'checkpoint', fields: { state: 'accepted', handledResultRunIds: expected } };
+  const record = { operationId: 'op', owner: 'worker', generation: 1, state: 'accepted', leaseUntil: 1, handledResultRunIds: expected };
+  const run = async handledResultRunIds => {
+    const bridge = createToolBridge({
+      toolMap, journalPath: '/tmp/journal.py', journalDirectory: '/tmp/store', batchJournalPath: '/tmp/journal-batch.py',
+      execCommand: async () => ({ exit_code: 0, output: JSON.stringify({ ok: true, completed: 1, results: [{ record: { ...record, handledResultRunIds } }] }) }),
+    });
+    return bridge.journalBatch([checkpoint], fence);
+  };
+  const cloned = await run(expected);
+  assert.notEqual(cloned.results[0].record.handledResultRunIds, expected, 'reply array must be a distinct clone');
+  assert.deepEqual(cloned.results[0].record.handledResultRunIds, expected);
+  for (const [name, value] of [
+    ['contents', ['run-a', 'run-c']],
+    ['order', ['run-b', 'run-a']],
+    ['extra item', ['run-a', 'run-b', 'run-c']],
+    ['missing item', ['run-a']],
+    ['element type', ['run-a', 2]],
+    ['non-array', 'run-a,run-b'],
+    ['array-like object', { 0: 'run-a', 1: 'run-b', length: 2 }],
+  ]) {
+    await assert.rejects(() => run(value), e => e.code === 'batch_record_mismatch', name);
+  }
+});
+
+test('active wrapper accepts a cloned array checkpoint field and rejects altered contents, order or types', async () => {
+  const expected = ['run-a', 'run-b'];
+  const run = async mutate => {
+    const store = inMemoryJournal(); const tools = happyTools();
+    let batches = 0;
+    const journalBatch = async (steps, fence) => {
+      batches += 1;
+      if (batches === 1) steps[0].fields = { ...steps[0].fields, handledResultRunIds: expected };
+      const reply = JSON.parse(JSON.stringify(await store.batch(steps, fence)));
+      if (mutate) mutate(reply.results[0].record);
+      return reply;
+    };
+    const result = await runAndMonitor({ ...base, ...bridge(store, tools), journalBatch });
+    return { store, tools, result, batches };
+  };
+  const positive = await run();
+  assert.equal(positive.result.state, 'ready_for_review');
+  assert.deepEqual(positive.store.record.handledResultRunIds, expected);
+  assert.equal(positive.store.record.state, 'review_pending');
+  for (const [name, mutate] of [
+    ['contents', record => { record.handledResultRunIds = ['run-a', 'run-c']; }],
+    ['order', record => { record.handledResultRunIds = ['run-b', 'run-a']; }],
+    ['extra item', record => { record.handledResultRunIds = ['run-a', 'run-b', 'run-c']; }],
+    ['missing item', record => { record.handledResultRunIds = ['run-a']; }],
+    ['element type', record => { record.handledResultRunIds = ['run-a', 2]; }],
+    ['non-array', record => { record.handledResultRunIds = 'run-a,run-b'; }],
+    ['array-like object', record => { record.handledResultRunIds = { 0: 'run-a', 1: 'run-b', length: 2 }; }],
+  ]) {
+    const negative = await run(mutate);
+    assert.equal(negative.result.state, 'accepted_watch_blocked', name);
+    assert.equal(negative.result.errorCode, 'batch_record_mismatch', name);
+    assert.equal(negative.result.accepted?.runId, 'run-1', `${name}: acceptance retained`);
+    assert.equal(negative.batches, 1, `${name}: no batch replay`);
+    assert.deepEqual(negative.tools.calls, ['launch'], `${name}: no native duplication`);
+  }
+});
+
 test('malformed successful replies never commit either batch phase as ready', async () => {
   const cases = [
     ['missing results', (reply) => ({ ok: true, completed: reply.completed })],

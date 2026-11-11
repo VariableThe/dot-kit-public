@@ -2,6 +2,14 @@
 const quoteShell = value => "'"+value.replaceAll("'", "'\\''")+"'";
 const toolNames = ['t3_thread_launch','t3_thread_send','t3_thread_wait','t3_thread_read'];
 const batchError = code => Object.assign(new Error('Journal batch reply is incomplete'),{code});
+/** Compare persisted fields exactly; JSON round-trips clone arrays, not their identity. */
+const sameBatchReplyField = (actual, expected) => {
+  if (!Array.isArray(expected)) return actual===expected;
+  if (!Array.isArray(actual) || actual.length!==expected.length) return false;
+  for (let index=0; index<expected.length; index += 1)
+    if (actual[index]!==expected[index]) return false;
+  return true;
+};
 const assertBatchReply = (result,steps,fence) => {
   if (!result || result.ok!==true || result.completed!==steps.length ||
       !Array.isArray(result.results) || result.results.length!==steps.length)
@@ -16,7 +24,7 @@ const assertBatchReply = (result,steps,fence) => {
       throw batchError('batch_record_mismatch');
     if (step.action==='checkpoint')
       for (const [key,value] of Object.entries(step.fields ?? {}))
-        if (record[key]!==value) throw batchError('batch_record_mismatch');
+        if (!sameBatchReplyField(record[key], value)) throw batchError('batch_record_mismatch');
     if (step.action==='release' && record.leaseUntil!==0)
       throw batchError('batch_record_mismatch');
   });

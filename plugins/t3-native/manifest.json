@@ -1,11 +1,11 @@
 {
   "mode": "caller-owned-active-wrapper",
-  "generatedAt": "2026-11-10",
+  "generatedAt": "2026-11-11",
   "files": {
-    "ACTIVE_MONITOR.md": "711efeac22f3f25d1417f51a3053c1c6ed1311cd5d80523b7c155f90463c4371",
-    "active-monitor.mjs": "f2a8da9ae41237b612ee2df2f2035dcaf4f57d82bb19d878c223c085ba4e0427",
-    "active-monitor.test.mjs": "c3faa978e88e4982f01a7e11cba9c8da81da0db4aca69b2092f720bb5aa569e0",
-    "active-runtime.js": "879080f1d65cdcd650fbea35fec23af86c6584e0db78296eff4a2fe55d490988",
+    "ACTIVE_MONITOR.md": "b2e9d606e4c760ce09e0fd5707b649e5ed63c62908aa38f4a09752aa93c2210c",
+    "active-monitor.mjs": "d19e3445e3c27b751f90aafb5262f1e0ba7ba288ac8d7f7b13a727bc65fa3578",
+    "active-monitor.test.mjs": "376300ef75c22b0d2718a0a552bcfac0ba48aa0b0c7bf68e2cb861667e34993b",
+    "active-runtime.js": "b245b980ce05fa63ef6a36d8d351778da10bceee57866bdc12c580d00e8c004d",
     "build-runtime.mjs": "3dae4b03d663bbe5d64056831a64e807d5e6e195900f5e5f634b7e0ce1ceabf3",
     "completion-core.mjs": "9c51d5c850961bd0fd0eaff3879a782d7d4ef65fb2eeb4027ca383f11aa63605",
     "completion-guard.mjs": "cd3d877eedab19a18d1079cf7b6e14de79c4fb436ac80027564603202ae730be",
@@ -16,9 +16,9 @@
     "completion-journal.test.py": "bc57db045da4d6a6e96947e702a2777cefb2713c0f573b933910c54b16ca4a12",
     "completion-monitor.mjs": "328e5acaa89a1237eb82da38fce3fc345002cfe2c43161bc8449f9a9b96f7521",
     "completion-monitor.test.mjs": "81656bd8db814b3103bf86dce2ef56602a04848b32b8e95dbf9cf5e92588a504",
-    "exec-bridge.mjs": "a680ad1f76ad000b516ef84b18f31714acec7c39120a05ad8dfa626b3082c84b",
+    "exec-bridge.mjs": "7868ff8aac11beb218699c73fca153159659499c193c43256a7fc440a547f25c",
     "exec-bridge.test.mjs": "5afc13cfaf13edfd18ef0925ce16fac4f5f353f87e92fdc21fb4be7a1964845e",
-    "journal-batch.test.mjs": "0275aba213c2efb084ac157a32ea812d409ab25f3d7e25b32100dda79346f4d2",
+    "journal-batch.test.mjs": "4e31ecb3034e7e5cc183a3bf5e719e89e1a4c83a24a808c6359efa3e79c3f49b",
     "recovery-journal.test.py": "fc6f378603ac1b4f085f481f9b834886db34361b69132458c52d7b227302e5b6",
     "recovery.test.mjs": "dcb317a218567dee816b29c99f62cadca5b96d20d16e0ed9ba3786db95eef508"
   }

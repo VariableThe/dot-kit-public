@@ -55,9 +55,9 @@
     "moduleDetectionLagMs": 265,
     "moduleFinalReadLagMs": 15814,
     "offlineTests": {
-      "javascript": 98,
+      "javascript": 100,
       "python": 43,
-      "total": 141
+      "total": 143
     },
     "optionalAdjacentBatch": true,
     "readOnlyRecoveryInventory": true,

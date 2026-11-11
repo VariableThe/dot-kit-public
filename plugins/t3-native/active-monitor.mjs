@@ -7,6 +7,14 @@ const MONITOR_LIMITS = Object.freeze({timeoutMs:[1,60000], maxWaits:[1,3600], ma
 const safeCode = error => typeof error?.code === 'string' && /^[A-Za-z0-9_:-]{1,80}$/.test(error.code) ? error.code : 'operation_error';
 const nonempty = x => typeof x === 'string' && x.trim().length > 0;
 const batchReplyError = code => Object.assign(new Error('Incomplete journal batch reply'),{code});
+/** Compare persisted fields exactly; JSON round-trips clone arrays, not their identity. */
+const sameBatchField = (actual, expected) => {
+  if (!Array.isArray(expected)) return actual===expected;
+  if (!Array.isArray(actual) || actual.length!==expected.length) return false;
+  for (let index=0; index<expected.length; index += 1)
+    if (actual[index]!==expected[index]) return false;
+  return true;
+};
 const validateMonitorOptions = options => {
   if (!options || typeof options !== 'object' || Array.isArray(options))
     throw new TypeError('Monitor options must be an object');
@@ -42,7 +50,7 @@ const validateBatchReply = (batch, steps, fence, verify) => {
       throw batchReplyError('batch_record_mismatch');
     if (step.action==='checkpoint')
       for (const [key,value] of Object.entries(step.fields ?? {}))
-        if (record[key]!==value) throw batchReplyError('batch_record_mismatch');
+        if (!sameBatchField(record[key], value)) throw batchReplyError('batch_record_mismatch');
     if (step.action==='release' && record.leaseUntil!==0)
       throw batchReplyError('batch_record_mismatch');
     return record;
