@@ -28,7 +28,8 @@ function classifyCompletion(input) {
     return answer('invalid_target', 'Restore the verified environment, thread and original run IDs.');
   const wait = payload(input.wait);
   if (!wait) return answer('read_error', 'Preserve the watch record. Diagnose the read error; do not resend work or claim completion.');
-  if (wait.threadId !== expected.threadId)
+  if (wait.threadId !== expected.threadId ||
+      (wait.environmentId !== undefined && wait.environmentId !== expected.environmentId))
     return answer('target_mismatch', 'Reconcile the target before any further action.');
   if (wait.runId === null || wait.status === 'idle')
     return answer('no_run', 'Inspect the exact thread. Idle is not successful completion.');
@@ -39,7 +40,8 @@ function classifyCompletion(input) {
     return answer('read_error', 'Recover the thread read before classifying its result.');
   if (read && read.thread?.threadId !== expected.threadId)
     return answer('target_mismatch', 'Reconcile the thread read before any further action.');
-  if (read && (read.thread.activeRunId !== null && typeof read.thread.activeRunId !== 'string' ||
+  const activeRunId = read?.thread?.activeRunId;
+  if (read && ((activeRunId !== null && (typeof activeRunId !== 'string' || activeRunId.length === 0)) ||
       !Number.isInteger(read.thread.pendingRequestCount) || read.thread.pendingRequestCount < 0 ||
       !Array.isArray(read.recentRuns) || !Array.isArray(read.items)))
     return answer('invalid_evidence', 'Recover complete thread activity, pending-request and run metadata.');
@@ -69,6 +71,10 @@ function classifyCompletion(input) {
     return answer('run_ended_unsuccessfully', 'Read and report the terminal result; the task is not successful.', result.runId);
   if (result.status !== 'completed')
     return answer('invalid_evidence', 'Wait until the final result run has ended.');
+  // Deduplicate only after exact target, settled-wait, success and lineage checks.
+  // This gate runs before any result-content read so a finalRead cannot re-acknowledge it.
+  if ((input.handledResultRunIds ?? []).includes(result.runId))
+    return answer('already_handled', 'Do not duplicate the result or send a duplicate follow-up.', result.runId);
   if (!read) return answer('needs_result_read', 'Read the final result run and required artifacts.', result.runId);
   if (read.thread.activeRunId || (read.recentRuns ?? []).some(run => ACTIVE.has(run.status)))
     return answer('newer_work_active', 'Reconcile current work without steering or interrupting it. Do not use an old result as the new outcome.', result.runId);
@@ -85,8 +91,6 @@ function classifyCompletion(input) {
     return answer('needs_result_read', 'Retrieve the completed assistant reply for the exact final result run.', result.runId);
   if (reply.textTruncated !== false || reply.nextTextOffset != null)
     return answer('needs_result_read', 'Recover the remaining text by itemId and textOffset.', result.runId);
-  if ((input.handledResultRunIds ?? []).includes(result.runId))
-    return answer('already_handled', 'Do not duplicate the result or send a duplicate follow-up.', result.runId);
   return answer('ready_for_review', 'Verify acceptance criteria and artifacts, report useful findings, then record delivery or the next authorized step.', result.runId);
 }
 
@@ -117,7 +121,7 @@ function toolError(value) {
 async function monitorCompletion({
   target, callTool, checkpoint, signal, sleep = pause, now = Date.now,
   timeoutMs = 60000, maxWaits = 60, maxReadAttempts = 3, maxPages = 50,
-  handledResultRunIds = [],
+  handledResultRunIds = [], skipInitialWatching = false,
 }) {
   if (!target || !['environmentId','threadId','runId'].every(k => typeof target[k] === 'string' && target[k]))
     throw new TypeError('Verified environment, thread and run IDs are required');
@@ -176,6 +180,8 @@ async function monitorCompletion({
         throw Object.assign(new Error('Pagination did not advance'), {code:'invalid_response'});
       position=last.nextPosition;
     }
+    if (last?.hasMore !== false)
+      throw Object.assign(new Error('Pagination budget exhausted'),{code:'pagination_budget_exhausted'});
     if (last?.hasMore === false) {
       const reply=items.findLast(item => item.runId===resultRunId && item.type==='assistant_message');
       if (reply?.textTruncated === true) {
@@ -199,7 +205,9 @@ async function monitorCompletion({
     return {...last,items};
   };
   // Checkpoint failure must stop the watch, never silently discard durability.
-  await save('watching');
+  // A caller that durably wrote the initial watching state in an adjacent batch
+  // may skip this duplicate; the pre-wait fence below is never skipped.
+  if (!skipInitialWatching) await save('watching');
   try {
     for (;waits<maxWaits;) {
       if (signal?.aborted) return finish({state:'watch_stopped',next:'Preserve the unfinished record and return ownership to the parent.'});
@@ -230,8 +238,53 @@ async function monitorCompletion({
 /** Execute one authorized mutation and immediately await its exact run. No credentials. */
 
 const METHODS = new Map([['launch','t3_thread_launch'], ['send','t3_thread_send']]);
+const MONITOR_LIMITS = Object.freeze({timeoutMs:[1,60000], maxWaits:[1,3600], maxReadAttempts:[1,5], maxPages:[1,100]});
 const safeCode = error => typeof error?.code === 'string' && /^[A-Za-z0-9_:-]{1,80}$/.test(error.code) ? error.code : 'operation_error';
 const nonempty = x => typeof x === 'string' && x.trim().length > 0;
+const batchReplyError = code => Object.assign(new Error('Incomplete journal batch reply'),{code});
+const validateMonitorOptions = options => {
+  if (!options || typeof options !== 'object' || Array.isArray(options))
+    throw new TypeError('Monitor options must be an object');
+  for (const [key,[low,high]] of Object.entries(MONITOR_LIMITS))
+    if (options[key] !== undefined && (!Number.isInteger(options[key]) || options[key] < low || options[key] > high))
+      throw new TypeError(`Invalid ${key}`);
+};
+
+/** Verify the exact fenced record before treating a release as confirmed. */
+const releaseConfirmed = (record, fence, expected) => {
+  if (!record || record.operationId!==fence.operationId || record.owner!==fence.owner ||
+      record.generation!==fence.generation || record.environmentId!==expected.environmentId ||
+      record.leaseUntil!==0) return false;
+  if (expected.threadId!==undefined && record.threadId!==expected.threadId) return false;
+  if (expected.runId!==undefined && record.runId!==expected.runId) return false;
+  if (expected.resultRunId!==undefined && record.resultRunId!==expected.resultRunId) return false;
+  if (expected.state!==undefined && record.state!==expected.state) return false;
+  return true;
+};
+
+/** Reject any reply that does not prove every requested step committed. */
+const validateBatchReply = (batch, steps, fence, verify) => {
+  if (!batch || batch.ok!==true || batch.completed!==steps.length ||
+      !Array.isArray(batch.results) || batch.results.length!==steps.length)
+    throw batchReplyError('batch_invalid_response');
+  const records=steps.map((step,index)=>{
+    if (!['checkpoint','release'].includes(step.action)) throw batchReplyError('batch_invalid_response');
+    const record=batch.results[index]?.record;
+    if (!record) throw batchReplyError('batch_invalid_record');
+    if (record.operationId!==fence.operationId || record.owner!==fence.owner || record.generation!==fence.generation)
+      throw batchReplyError('batch_record_mismatch');
+    if (step.action==='checkpoint' && record.state!==step.fields?.state)
+      throw batchReplyError('batch_record_mismatch');
+    if (step.action==='checkpoint')
+      for (const [key,value] of Object.entries(step.fields ?? {}))
+        if (record[key]!==value) throw batchReplyError('batch_record_mismatch');
+    if (step.action==='release' && record.leaseUntil!==0)
+      throw batchReplyError('batch_record_mismatch');
+    return record;
+  });
+  if (verify) verify(records);
+  return records;
+};
 
 /**
  * journal(action, fields) calls the durable, fenced local journal, not store().
@@ -239,13 +292,18 @@ const nonempty = x => typeof x === 'string' && x.trim().length > 0;
  * It never retries a mutation and never reports user delivery automatically.
  */
 async function runAndMonitor({
-  operationId, owner, method, args, context, journal, callTool,
-  signal, continuation, monitorOptions = {}, now = Date.now,
+  operationId, owner, method, args, context, journal, callTool, journalBatch,
+  adoptRunId, signal, continuation, monitorOptions = {}, now = Date.now, instrument,
 }) {
   if (![operationId,owner].every(nonempty) || !['launch','send','resume'].includes(method))
     throw new TypeError('Operation ID, native owner and launch/send/resume method are required');
   if (typeof journal !== 'function' || typeof callTool !== 'function')
     throw new TypeError('Durable journal and existing native connector callbacks are required');
+  if (journalBatch!==undefined && typeof journalBatch!=='function')
+    throw new TypeError('A journal batch callback must be a function');
+  if (instrument!==undefined && typeof instrument!=='function')
+    throw new TypeError('An instrumentation callback must be a function');
+  const emit = event => { if (instrument) { try { instrument(event); } catch { /* instrumentation never affects delivery */ } } };
   if (method !== 'resume') {
     if (!args || !nonempty(args.environmentId) || !nonempty(args.clientRequestId) || !nonempty(args.message))
       throw new TypeError('Verified environment, stable clientRequestId and authorized message are required');
@@ -254,9 +312,13 @@ async function runAndMonitor({
       throw new TypeError('Parent task and acceptance criteria are required');
   }
   if (method !== 'resume') { args=JSON.parse(JSON.stringify(args)); context=JSON.parse(JSON.stringify(context)); }
+  validateMonitorOptions(monitorOptions);
   if (continuation && (method!=='resume' || !Array.isArray(continuation.verifiedResultRunIds) ||
       !continuation.verifiedResultRunIds.every(nonempty) || !nonempty(continuation.evidenceRef)))
     throw new TypeError('Continuation requires resume, verified IDs and an authoritative evidence reference');
+  if (adoptRunId!==undefined && (method!=='resume' || !nonempty(adoptRunId) ||
+      !continuation?.verifiedResultRunIds?.includes(adoptRunId)))
+    throw new TypeError('Adoption requires resume, one verified successor ID and continuation evidence');
   let claim;
   try { claim = await journal('claim',{operationId,owner,method,...method==='resume'?{}:{args,context}}); }
   catch (error) { return {state:'watch_not_started',errorCode:safeCode(error),operationId,taskComplete:false}; }
@@ -266,13 +328,19 @@ async function runAndMonitor({
   let record=claim.record;
   let accepted = record.threadId && record.runId ? {threadId:record.threadId,runId:record.runId,projectId:record.projectId,link:record.link} : null;
   let dispatched=false;
+  let batchWatching=false;
+  let leaseFinalized=false;
+  let lastOutcome=null;
   const checkpoint = async fields => {
     const response=await journal('checkpoint',{...fence,fields});
     if (!response?.record) throw Object.assign(new Error('Durable checkpoint failed'),{code:response?.error?.code ?? 'checkpoint_failed'});
     record=response.record;
     return record;
   };
-  const finish = async result => ({...result,operationId,owner,generation:claim.generation,accepted,taskComplete:false});
+  const finish = async result => {
+    lastOutcome={...result,operationId,owner,generation:claim.generation,accepted,taskComplete:false};
+    return lastOutcome;
+  };
   try {
     if (['delivered','delivery_pending','delivery_uncertain'].includes(record.state))
       return finish({state:record.state,next:'Reconcile parent delivery; do not resend or relaunch.'});
@@ -289,11 +357,14 @@ async function runAndMonitor({
       await checkpoint({state:'dispatching',dispatchAttempted:true,startedAt:new Date(now()).toISOString()});
       dispatched=true;
       let raw;
+      emit({event:'dispatch_start',method,at:now()});
       try { raw=await callTool(METHODS.get(method),args); }
       catch (error) {
+        emit({event:'dispatch_end',method,at:now()});
         await checkpoint({state:'dispatch_uncertain',errorCode:safeCode(error)});
         return finish({state:'dispatch_uncertain',errorCode:safeCode(error),next:'Inspect the original operation before retrying; retain clientRequestId.'});
       }
+      emit({event:'dispatch_end',method,at:now()});
       const response=payload(raw);
       if (!response || !nonempty(response.threadId) || !nonempty(response.runId) ||
           (method==='send' && response.threadId!==args.threadId)) {
@@ -301,9 +372,66 @@ async function runAndMonitor({
         return finish({state:'dispatch_uncertain',errorCode:'invalid_dispatch_response',next:'Do not retry an unconfirmed mutation. Reconcile the exact request.'});
       }
       accepted=Object.fromEntries(['threadId','runId','projectId','link','messageId','taskId'].filter(k=>nonempty(response[k])).map(k=>[k,response[k]]));
-      await checkpoint({state:'accepted',...Object.fromEntries(Object.entries(accepted).filter(([key])=>key!=='link')),startPosition:Number.isInteger(context.startPosition)?context.startPosition:-1});
+      const acceptedFields={...Object.fromEntries(Object.entries(accepted).filter(([key])=>key!=='link')),startPosition:Number.isInteger(context.startPosition)?context.startPosition:-1};
+      if (journalBatch) {
+        // Adjacent metadata only, immediately after native acceptance. No native
+        // effect lies between these two steps. A partial/lost reply is uncertain.
+        try {
+          const watchingAt=new Date(now()).toISOString();
+          const startPosition=acceptedFields.startPosition;
+          const acceptedSteps=[
+            {action:'checkpoint',fields:{state:'accepted',...acceptedFields}},
+            {action:'checkpoint',fields:{state:'watching',threadId:accepted.threadId,runId:accepted.runId,
+              startedAt:watchingAt,observedAt:watchingAt,startPosition,lastReadPosition:startPosition,
+              waits:0,taskComplete:false}},
+          ];
+          const batch=await journalBatch(acceptedSteps,fence);
+          const records=validateBatchReply(batch,acceptedSteps,fence,([acceptedRecord,watchingRecord])=>{
+            if (acceptedRecord.environmentId!==record.environmentId ||
+                acceptedRecord.threadId!==accepted.threadId || acceptedRecord.runId!==accepted.runId ||
+                acceptedRecord.startPosition!==startPosition ||
+                watchingRecord.environmentId!==record.environmentId ||
+                watchingRecord.threadId!==accepted.threadId || watchingRecord.runId!==accepted.runId ||
+                watchingRecord.startPosition!==startPosition || watchingRecord.lastReadPosition!==startPosition ||
+                watchingRecord.waits!==0 || watchingRecord.taskComplete!==false)
+              throw batchReplyError('batch_record_mismatch');
+          });
+          record=records.at(-1);
+          batchWatching=true;
+        } catch (error) {
+          return finish({state:'accepted_watch_blocked',errorCode:safeCode(error),next:'Native acceptance is retained. Reconcile the journal record read-only; do not redeliver and do not retry the batch.'});
+        }
+      } else {
+        await checkpoint({state:'accepted',...acceptedFields});
+      }
     }
     if (continuation) await checkpoint({verifiedResultRunIds:continuation.verifiedResultRunIds,continuationEvidenceRef:continuation.evidenceRef});
+    if (adoptRunId!==undefined) {
+      // Explicit, evidence-backed adoption of an already-observed successor run.
+      // The original run stays in originRunId/lineageRunIds; no native mutation occurs.
+      if (!accepted) throw Object.assign(new Error('No accepted run to adopt'),{code:'not_accepted'});
+      const expectedOrigin=record.originRunId ?? record.runId;
+      const priorLineage=Array.isArray(record.lineageRunIds)?[...record.lineageRunIds]:[];
+      const adopted=await journal('adopt',{...fence,runId:adoptRunId,evidenceRef:continuation.evidenceRef});
+      const adoptedRecord=adopted?.record;
+      const invalidAdoption=()=>Object.assign(new Error('Malformed adoption reply'),{code:'adopt_invalid_response'});
+      if (!adoptedRecord) throw Object.assign(new Error('Adoption was not persisted'),{code:'adopt_failed'});
+      if (adoptedRecord.operationId!==fence.operationId || adoptedRecord.owner!==fence.owner ||
+          adoptedRecord.generation!==fence.generation || adoptedRecord.environmentId!==record.environmentId || adoptedRecord.threadId!==accepted.threadId ||
+          adoptedRecord.runId!==adoptRunId || adoptedRecord.originRunId!==expectedOrigin ||
+          adoptedRecord.state!=='watching' || adoptedRecord.resultRunId!=null ||
+          adoptedRecord.taskComplete!==false || adoptedRecord.continuationEvidenceRef!==continuation.evidenceRef ||
+          !Array.isArray(adoptedRecord.verifiedResultRunIds) ||
+          !adoptedRecord.verifiedResultRunIds.includes(adoptRunId) ||
+          !Array.isArray(adoptedRecord.lineageRunIds) ||
+          !adoptedRecord.lineageRunIds.includes(expectedOrigin) ||
+          !adoptedRecord.lineageRunIds.includes(adoptRunId) ||
+          priorLineage.length>adoptedRecord.lineageRunIds.length ||
+          priorLineage.some((runId,index)=>adoptedRecord.lineageRunIds[index]!==runId))
+        throw invalidAdoption();
+      record=adoptedRecord;
+      accepted={...accepted,runId:record.runId,originRunId:record.originRunId,lineageRunIds:record.lineageRunIds};
+    }
     const target={verifiedResultRunIds:record.verifiedResultRunIds ?? [],environmentId:record.environmentId,threadId:accepted.threadId,runId:accepted.runId,
       afterPosition:Number.isInteger(record.startPosition)?record.startPosition:-1};
     // Callers cannot override target, persistence, connector or handling through options.
@@ -311,21 +439,71 @@ async function runAndMonitor({
     const result=await monitorCompletion({
       ...allowedOptions,target,signal,now,
       handledResultRunIds:record.handledResultRunIds ?? [],
+      skipInitialWatching:batchWatching,
       checkpoint:fields=>checkpoint(Object.fromEntries(Object.entries(fields).filter(([key])=>key!=='environmentId'))),
       callTool:async(name,readArgs)=>{
         // Fence before every wait/read, including result retrieval. Never use a stale lease.
         await checkpoint({state:'watching',observedAt:new Date(now()).toISOString()});
-        return callTool(name,readArgs);
+        emit({event:'call_start',name,at:now()});
+        try { return await callTool(name,readArgs); }
+        finally { emit({event:'call_end',name,at:now()}); }
       },
     });
-    if (result.state==='ready_for_review') await checkpoint({state:'review_pending',resultRunId:result.resultRunId});
+    if (result.state==='ready_for_review') {
+      if (journalBatch) {
+        // Adjacent terminal metadata: validated result, review handoff, lease close.
+        // The batch includes release, so never attempt a second uncertain release.
+        leaseFinalized=true;
+        try {
+          const terminalSteps=[
+            {action:'checkpoint',fields:{state:'review_pending',resultRunId:result.resultRunId}},
+            {action:'release'},
+          ];
+          const batch=await journalBatch(terminalSteps,fence);
+          validateBatchReply(batch,terminalSteps,fence,([reviewRecord,releasedRecord])=>{
+            if (reviewRecord.environmentId!==record.environmentId ||
+                reviewRecord.threadId!==accepted.threadId || reviewRecord.runId!==accepted.runId ||
+                reviewRecord.resultRunId!==result.resultRunId ||
+                releasedRecord.environmentId!==record.environmentId ||
+                releasedRecord.threadId!==accepted.threadId || releasedRecord.runId!==accepted.runId ||
+                releasedRecord.resultRunId!==result.resultRunId || releasedRecord.state!=='review_pending')
+              throw batchReplyError('batch_record_mismatch');
+          });
+        } catch (error) {
+          return finish({state:'watch_blocked',errorCode:safeCode(error),resultRunId:result.resultRunId,releaseState:'batch_uncertain',next:'Terminal journal batch is uncertain or partial. Reconcile the record with a read-only read before delivery; do not redeliver and do not retry the batch.'});
+        }
+      } else {
+        await checkpoint({state:'review_pending',resultRunId:result.resultRunId});
+      }
+    }
     return finish(result);
   } catch (error) {
     // An accepted mutation is retained even when its checkpoint fails. Never hide it.
     return finish({state:accepted?'accepted_watch_blocked':dispatched?'dispatch_uncertain':'watch_blocked',
       errorCode:safeCode(error),next:'Preserve this operation and recover the same run. Do not relaunch.'});
   } finally {
-    try { await journal('release',fence); } catch { /* Lease expiry fences recovery; result remains unfinished. */ }
+    if (!leaseFinalized) {
+      try {
+        const released=await journal('release',fence);
+        const expected={environmentId:record.environmentId,threadId:accepted?.threadId ?? record.threadId,
+          runId:accepted?.runId ?? record.runId,resultRunId:lastOutcome?.resultRunId ?? record.resultRunId,
+          state:lastOutcome?.state==='ready_for_review'?'review_pending':undefined};
+        if (!releaseConfirmed(released?.record,fence,expected))
+          throw Object.assign(new Error('Lease release was not confirmed'),{code:'release_unconfirmed'});
+      } catch (error) {
+        // A lost reply may still have committed the release, so this is uncertain,
+        // not a reason to retry. Never let a ready handoff hide an unconfirmed lease.
+        if (lastOutcome) {
+          lastOutcome.releaseState='release_uncertain';
+          lastOutcome.releaseErrorCode=safeCode(error);
+          if (lastOutcome.state==='ready_for_review') {
+            lastOutcome.state='watch_blocked';
+            lastOutcome.errorCode='release_uncertain';
+            lastOutcome.next='Final evidence remains at review_pending, but lease release was not confirmed. Reconcile the record read-only; do not redeliver, force a release, replay a batch, or retry dispatch.';
+          }
+        }
+      }
+    }
   }
 }
 
@@ -334,18 +512,55 @@ async function runAndMonitor({
 /** Adapter for the existing tools execution isolate; no transport or credentials. */
 const quoteShell = value => "'"+value.replaceAll("'", "'\\''")+"'";
 const toolNames = ['t3_thread_launch','t3_thread_send','t3_thread_wait','t3_thread_read'];
-function createToolBridge({execCommand,toolMap,journalPath,journalDirectory,persistenceOptions={}}) {
+const batchError = code => Object.assign(new Error('Journal batch reply is incomplete'),{code});
+const assertBatchReply = (result,steps,fence) => {
+  if (!result || result.ok!==true || result.completed!==steps.length ||
+      !Array.isArray(result.results) || result.results.length!==steps.length)
+    throw batchError('batch_invalid_response');
+  steps.forEach((step,index)=>{
+    if (!['checkpoint','release'].includes(step.action)) throw batchError('batch_invalid_response');
+    const record=result.results[index]?.record;
+    if (!record) throw batchError('batch_invalid_record');
+    if (record.operationId!==fence.operationId || record.owner!==fence.owner || record.generation!==fence.generation)
+      throw batchError('batch_record_mismatch');
+    if (step.action==='checkpoint' && record.state!==step.fields?.state)
+      throw batchError('batch_record_mismatch');
+    if (step.action==='checkpoint')
+      for (const [key,value] of Object.entries(step.fields ?? {}))
+        if (record[key]!==value) throw batchError('batch_record_mismatch');
+    if (step.action==='release' && record.leaseUntil!==0)
+      throw batchError('batch_record_mismatch');
+  });
+  return result;
+};
+function createToolBridge({execCommand,toolMap,journalPath,journalDirectory,persistenceOptions={},batchJournalPath}) {
   if (typeof execCommand!=='function' || !toolMap ||
       !toolNames.every(name=>typeof toolMap[name]==='function')) throw new TypeError('Existing execution and native T3 callbacks are required');
   if (![journalPath,journalDirectory].every(p=>typeof p==='string' && p.startsWith('/') && !p.includes('\0')))
     throw new TypeError('Verified absolute local journal paths are required');
+  if (batchJournalPath!==undefined && !(typeof batchJournalPath==='string' && batchJournalPath.startsWith('/') && !batchJournalPath.includes('\0')))
+    throw new TypeError('A verified absolute batch journal path is required');
   const options=Object.fromEntries(['sandbox_permissions','justification'].filter(k=>persistenceOptions[k]!==undefined).map(k=>[k,persistenceOptions[k]]));
   return {
     callTool:async(name,args)=>{
       if (!toolNames.includes(name)) throw Object.assign(new Error('Unsupported tool'),{code:'unsupported_tool'});
       return toolMap[name](args);
     },
+    ...(batchJournalPath ? { journalBatch:async(steps,fence)=>{
+      if (!fence || ![fence.operationId,fence.owner].every(v=>typeof v==='string' && v.trim().length>0) ||
+          !Number.isInteger(fence.generation)) throw batchError('batch_invalid_response');
+      const request={action:'batch',operationId:fence.operationId,owner:fence.owner,generation:fence.generation,steps};
+      const command="printf '%s' "+quoteShell(JSON.stringify(request))+" | python3 "+quoteShell(batchJournalPath)+" --directory "+quoteShell(journalDirectory);
+      const reply=await execCommand({cmd:command,login:false,max_output_tokens:20000,...options});
+      let result;
+      try { result=JSON.parse(reply.output); }
+      catch { throw Object.assign(new Error('Journal batch response unavailable'),{code:'journal_invalid_response'}); }
+      if (reply.exit_code!==0 || result.ok!==true) throw Object.assign(new Error('Journal batch failed'),{code:result.error?.code ?? 'batch_error',batch:{step:result.step,completed:result.completed,uncertain:result.uncertain===true}});
+      return assertBatchReply(result,steps,fence);
+    }} : {}),
     journal:async(action,fields={})=>{
+      // The journal stores hashes, but this shell command carries the full request
+      // JSON (including message/context). Shell or exec logs may retain that text.
       const command="printf '%s' "+quoteShell(JSON.stringify({action,...fields}))+" | python3 "+quoteShell(journalPath)+" --directory "+quoteShell(journalDirectory);
       const reply=await execCommand({cmd:command,login:false,max_output_tokens:5000,...options});
       let result;

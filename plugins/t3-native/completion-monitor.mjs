@@ -24,7 +24,7 @@ function toolError(value) {
 export async function monitorCompletion({
   target, callTool, checkpoint, signal, sleep = pause, now = Date.now,
   timeoutMs = 60000, maxWaits = 60, maxReadAttempts = 3, maxPages = 50,
-  handledResultRunIds = [],
+  handledResultRunIds = [], skipInitialWatching = false,
 }) {
   if (!target || !['environmentId','threadId','runId'].every(k => typeof target[k] === 'string' && target[k]))
     throw new TypeError('Verified environment, thread and run IDs are required');
@@ -83,6 +83,8 @@ export async function monitorCompletion({
         throw Object.assign(new Error('Pagination did not advance'), {code:'invalid_response'});
       position=last.nextPosition;
     }
+    if (last?.hasMore !== false)
+      throw Object.assign(new Error('Pagination budget exhausted'),{code:'pagination_budget_exhausted'});
     if (last?.hasMore === false) {
       const reply=items.findLast(item => item.runId===resultRunId && item.type==='assistant_message');
       if (reply?.textTruncated === true) {
@@ -106,7 +108,9 @@ export async function monitorCompletion({
     return {...last,items};
   };
   // Checkpoint failure must stop the watch, never silently discard durability.
-  await save('watching');
+  // A caller that durably wrote the initial watching state in an adjacent batch
+  // may skip this duplicate; the pre-wait fence below is never skipped.
+  if (!skipInitialWatching) await save('watching');
   try {
     for (;waits<maxWaits;) {
       if (signal?.aborted) return finish({state:'watch_stopped',next:'Preserve the unfinished record and return ownership to the parent.'});

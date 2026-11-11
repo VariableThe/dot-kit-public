@@ -59,9 +59,6 @@ The Python adapter under plugins/ecosystem_connectivity is included separately. 
 
 ## Completion monitoring
 
-Use the [caller-side completion monitor](COMPLETION_MONITOR.md) after each authorized launch or follow-up. It pairs the native event wait with immediate result retrieval, durable caller-owned checkpoints and a conservative completion guard. It does not add a server callback or run automatically when installed.
+Use the [active launch/send route](ACTIVE_MONITOR.md) for each authorized operation. Its executable wrapper attaches monitoring before returning; the lower-level [completion monitor](COMPLETION_MONITOR.md) is shared implementation. It pairs the native event wait with immediate result retrieval, durable caller-owned checkpoints and a conservative completion guard.
 
-
-## Required active operation route
-
-Use [ACTIVE_MONITOR.md](ACTIVE_MONITOR.md) and the executable `runAndMonitor` wrapper for every authorized launch/send in this workflow. It attaches the exact-run monitor before returning; the lower-level helper alone is not activation. This is caller-owned, not a daemon or global native-tool hook.
+The wrapper also supports an optional adjacent-metadata batch while keeping the stable one-shot path as the default, a read-only recovery inventory, and explicit evidence-backed adoption of a verified successor run with append-only lineage. Batch steps are independently durable rather than transactional. The offline suite passes 98 JavaScript and 43 Python tests (141 total); see [the active-route validation](../../docs/T3_ACTIVE_MONITOR_VALIDATION.md) for live evidence and limits. Monitoring remains caller-driven: it does not add a server callback, daemon, scheduler, universal native-call interception, or unattended recovery when every caller exits.

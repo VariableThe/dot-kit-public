@@ -58,6 +58,17 @@ class JournalTests(unittest.TestCase):
         changed=claim(); changed['args']['message']='different'
         with self.assertRaisesRegex(M.JournalError,'request_mismatch'):
             self.journal.execute(changed)
+    def test_context_mismatch_cannot_reuse_operation_identity(self):
+        self.journal.execute(claim()); self.mutate('release')
+        changed=claim(); changed['context']['acceptanceCriteria']='different'
+        with self.assertRaisesRegex(M.JournalError,'context_mismatch'):
+            self.journal.execute(changed)
+    def test_original_start_boundary_is_immutable(self):
+        request=claim(); request['context']['startPosition']=90
+        self.journal.execute(request)
+        with self.assertRaisesRegex(M.JournalError,'start_position_changed'):
+            self.mutate(fields={'startPosition':91})
+        self.assertEqual(self.journal.execute({'action':'read','operationId':'one'})['record']['startPosition'],90)
     def test_owner_contention(self):
         self.journal.execute(claim())
         with self.assertRaisesRegex(M.JournalError,'owner_busy'):

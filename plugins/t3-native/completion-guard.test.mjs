@@ -42,9 +42,10 @@ for (const status of ['failed','cancelled','interrupted','rolled_back']) {
 test('idle or missing run cannot satisfy a task', () => {
   const e=evidence(); e.wait.status='idle'; e.wait.runId=null; assert.equal(state(e),'no_run');
 });
-test('different thread and restarted run require explicit reconciliation', () => {
+test('different thread, environment and restarted run require explicit reconciliation', () => {
   const e=evidence(); e.wait.threadId='thread-b'; assert.equal(state(e),'target_mismatch');
-  e.wait.threadId='thread-a'; e.wait.runId='run-b'; assert.equal(state(e),'run_changed');
+  e.wait.threadId='thread-a'; e.wait.environmentId='host-b'; assert.equal(state(e),'target_mismatch');
+  e.wait.environmentId='host-a'; e.wait.runId='run-b'; assert.equal(state(e),'run_changed');
 });
 test('a different result run needs verified continuation lineage', () => {
   const e=evidence(); e.wait.resultRun.runId='run-b'; assert.equal(state(e),'result_run_changed');
@@ -61,8 +62,9 @@ test('new human work must not be confused with the tracked result', () => {
   const e=evidence(); e.read.thread.activeRunId='run-b'; assert.equal(state(e),'newer_work_active');
   e.read.thread.activeRunId=null; e.read.thread.latestRunId='run-b'; assert.equal(state(e),'newer_result');
 });
-test('handled results do not generate duplicate handoffs', () => {
+test('handled results do not generate duplicate handoffs or require a result read', () => {
   const e=evidence(); e.handledResultRunIds=['run-a']; assert.equal(state(e),'already_handled');
+  delete e.read; assert.equal(state(e),'already_handled');
 });
 test('missing and error responses do not imply work stopped or completed', () => {
   const e=evidence(); e.wait={isError:true, content:[{type:'text',text:'timeout'}]}; assert.equal(state(e),'read_error');
@@ -85,7 +87,7 @@ test('CLI accepts stdin evidence and rejects invalid JSON without a decision', (
 });
 
 test('incomplete activity metadata cannot look like an idle verified result', () => {
-  for (const alter of [e=>delete e.read.thread.activeRunId,e=>delete e.read.thread.pendingRequestCount,e=>e.read.recentRuns={},e=>e.read.items=null]) {
+  for (const alter of [e=>delete e.read.thread.activeRunId,e=>e.read.thread.activeRunId='',e=>delete e.read.thread.pendingRequestCount,e=>e.read.recentRuns={},e=>e.read.items=null]) {
     const e=evidence(); alter(e); assert.equal(state(e),'invalid_evidence');
   }
 });

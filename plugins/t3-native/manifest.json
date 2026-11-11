@@ -1,0 +1,25 @@
+{
+  "mode": "caller-owned-active-wrapper",
+  "generatedAt": "2026-11-10",
+  "files": {
+    "ACTIVE_MONITOR.md": "711efeac22f3f25d1417f51a3053c1c6ed1311cd5d80523b7c155f90463c4371",
+    "active-monitor.mjs": "f2a8da9ae41237b612ee2df2f2035dcaf4f57d82bb19d878c223c085ba4e0427",
+    "active-monitor.test.mjs": "c3faa978e88e4982f01a7e11cba9c8da81da0db4aca69b2092f720bb5aa569e0",
+    "active-runtime.js": "879080f1d65cdcd650fbea35fec23af86c6584e0db78296eff4a2fe55d490988",
+    "build-runtime.mjs": "3dae4b03d663bbe5d64056831a64e807d5e6e195900f5e5f634b7e0ce1ceabf3",
+    "completion-core.mjs": "9c51d5c850961bd0fd0eaff3879a782d7d4ef65fb2eeb4027ca383f11aa63605",
+    "completion-guard.mjs": "cd3d877eedab19a18d1079cf7b6e14de79c4fb436ac80027564603202ae730be",
+    "completion-guard.test.mjs": "ab292de2e01ee55d29d6569acf9562a9e707eca9a54dad435a59c73a70ccb582",
+    "completion-journal-batch.py": "c5c5cb96b784fbf1d32c5355812838d49d5ed397641668fe9c384b544c9db198",
+    "completion-journal-batch.test.py": "47a40f95d7c6e8f85cbc648707071359e91328bbfdc7723d5f70b5fee0cd5174",
+    "completion-journal.py": "01ad52d6c5c1e9c417c8d3ce72dbbbdb82bdca68064636758f9de03ca64e73f4",
+    "completion-journal.test.py": "bc57db045da4d6a6e96947e702a2777cefb2713c0f573b933910c54b16ca4a12",
+    "completion-monitor.mjs": "328e5acaa89a1237eb82da38fce3fc345002cfe2c43161bc8449f9a9b96f7521",
+    "completion-monitor.test.mjs": "81656bd8db814b3103bf86dce2ef56602a04848b32b8e95dbf9cf5e92588a504",
+    "exec-bridge.mjs": "a680ad1f76ad000b516ef84b18f31714acec7c39120a05ad8dfa626b3082c84b",
+    "exec-bridge.test.mjs": "5afc13cfaf13edfd18ef0925ce16fac4f5f353f87e92fdc21fb4be7a1964845e",
+    "journal-batch.test.mjs": "0275aba213c2efb084ac157a32ea812d409ab25f3d7e25b32100dda79346f4d2",
+    "recovery-journal.test.py": "fc6f378603ac1b4f085f481f9b834886db34361b69132458c52d7b227302e5b6",
+    "recovery.test.mjs": "dcb317a218567dee816b29c99f62cadca5b96d20d16e0ed9ba3786db95eef508"
+  }
+}

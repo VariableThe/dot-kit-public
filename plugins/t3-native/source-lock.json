@@ -54,8 +54,18 @@
     "firstDetectionLagMs": 178,
     "moduleDetectionLagMs": 265,
     "moduleFinalReadLagMs": 15814,
+    "offlineTests": {
+      "javascript": 98,
+      "python": 43,
+      "total": 141
+    },
+    "optionalAdjacentBatch": true,
+    "readOnlyRecoveryInventory": true,
+    "explicitSuccessorAdoption": true,
     "unsolicitedPushSubscription": false,
+    "instantHandoffVerified": false,
     "durableProcessRecoveryLiveTested": false,
+    "permanentRecoverySchedulerIncluded": false,
     "upstreamSourcePinChanged": false,
     "finalCodeCompletedRunReadbackVerified": true
   }

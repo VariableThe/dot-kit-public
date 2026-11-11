@@ -24,7 +24,8 @@ export function classifyCompletion(input) {
     return answer('invalid_target', 'Restore the verified environment, thread and original run IDs.');
   const wait = payload(input.wait);
   if (!wait) return answer('read_error', 'Preserve the watch record. Diagnose the read error; do not resend work or claim completion.');
-  if (wait.threadId !== expected.threadId)
+  if (wait.threadId !== expected.threadId ||
+      (wait.environmentId !== undefined && wait.environmentId !== expected.environmentId))
     return answer('target_mismatch', 'Reconcile the target before any further action.');
   if (wait.runId === null || wait.status === 'idle')
     return answer('no_run', 'Inspect the exact thread. Idle is not successful completion.');
@@ -35,7 +36,8 @@ export function classifyCompletion(input) {
     return answer('read_error', 'Recover the thread read before classifying its result.');
   if (read && read.thread?.threadId !== expected.threadId)
     return answer('target_mismatch', 'Reconcile the thread read before any further action.');
-  if (read && (read.thread.activeRunId !== null && typeof read.thread.activeRunId !== 'string' ||
+  const activeRunId = read?.thread?.activeRunId;
+  if (read && ((activeRunId !== null && (typeof activeRunId !== 'string' || activeRunId.length === 0)) ||
       !Number.isInteger(read.thread.pendingRequestCount) || read.thread.pendingRequestCount < 0 ||
       !Array.isArray(read.recentRuns) || !Array.isArray(read.items)))
     return answer('invalid_evidence', 'Recover complete thread activity, pending-request and run metadata.');
@@ -65,6 +67,10 @@ export function classifyCompletion(input) {
     return answer('run_ended_unsuccessfully', 'Read and report the terminal result; the task is not successful.', result.runId);
   if (result.status !== 'completed')
     return answer('invalid_evidence', 'Wait until the final result run has ended.');
+  // Deduplicate only after exact target, settled-wait, success and lineage checks.
+  // This gate runs before any result-content read so a finalRead cannot re-acknowledge it.
+  if ((input.handledResultRunIds ?? []).includes(result.runId))
+    return answer('already_handled', 'Do not duplicate the result or send a duplicate follow-up.', result.runId);
   if (!read) return answer('needs_result_read', 'Read the final result run and required artifacts.', result.runId);
   if (read.thread.activeRunId || (read.recentRuns ?? []).some(run => ACTIVE.has(run.status)))
     return answer('newer_work_active', 'Reconcile current work without steering or interrupting it. Do not use an old result as the new outcome.', result.runId);
@@ -81,7 +87,5 @@ export function classifyCompletion(input) {
     return answer('needs_result_read', 'Retrieve the completed assistant reply for the exact final result run.', result.runId);
   if (reply.textTruncated !== false || reply.nextTextOffset != null)
     return answer('needs_result_read', 'Recover the remaining text by itemId and textOffset.', result.runId);
-  if ((input.handledResultRunIds ?? []).includes(result.runId))
-    return answer('already_handled', 'Do not duplicate the result or send a duplicate follow-up.', result.runId);
   return answer('ready_for_review', 'Verify acceptance criteria and artifacts, report useful findings, then record delivery or the next authorized step.', result.runId);
 }

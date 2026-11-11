@@ -25,12 +25,13 @@ def identifier(value):
 
 STATES = set('dispatching dispatch_pending dispatch_uncertain accepted watching waiting retrying_read watch_stopped watch_incomplete watch_blocked blocked invalid_target read_error target_mismatch no_run run_changed invalid_evidence await_native_wake unexpected_wake run_ended_unsuccessfully needs_settled_wait result_run_changed newer_work_active newer_result needs_result_read already_handled ready_for_review review_pending'.split())
 IDS = set('threadId runId messageId taskId projectId resultRunId'.split())
-FIELDS = IDS | set('state link dispatchAttempted startPosition lastReadPosition waits attempt errorCode startedAt observedAt handledResultRunIds verifiedResultRunIds continuationEvidenceRef taskComplete'.split())
+FIELDS = IDS | set('state link dispatchAttempted startPosition lastReadPosition waits attempt errorCode startedAt observedAt handledResultRunIds verifiedResultRunIds continuationEvidenceRef taskComplete originRunId lineageRunIds'.split())
 COMMON = {'action','operationId','owner','generation'}
 KEYS = {
  'claim': {'action','operationId','owner','method','args','context','ttlSeconds'},
  'checkpoint': COMMON | {'fields'}, 'read': {'action','operationId'},
- 'list': {'action'}, 'release': COMMON,
+ 'list': {'action'}, 'inventory': {'action'},
+ 'adopt': COMMON | {'runId','evidenceRef'}, 'release': COMMON,
  'delivery': COMMON | {'state','receiptId'},
 }
 ARGS = {
@@ -102,16 +103,66 @@ class Journal:
         require(isinstance(data, dict) and data.get('version') == 1 and isinstance(data.get('records'), dict), 'invalid_store')
         return data
 
+    @staticmethod
+    def inventory(records, now):
+        rows = []
+        for operation_id in sorted(records):
+            record = records[operation_id]
+            state = record.get('state')
+            lease_until = record.get('leaseUntil', 0)
+            expired = lease_until <= now
+            blockers = []
+            for other_id, other in records.items():
+                if other_id == operation_id:
+                    continue
+                if (other.get('environmentId') == record.get('environmentId') and
+                    other.get('threadId') and other.get('threadId') == record.get('threadId') and
+                    other.get('leaseUntil', 0) > now):
+                    blockers.append(other)
+            thread_busy = bool(blockers)
+            pre_dispatch = state == 'dispatch_pending' and record.get('dispatchAttempted') is False
+            if state in ('await_native_wake','unexpected_wake'):
+                required = 'verify_wake_ownership_do_not_observe'
+            elif not expired:
+                required = 'leave_owner_running'
+            elif state == 'delivery_pending': required = 'reconcile_delivery'
+            elif state == 'delivery_uncertain': required = 'reconcile_uncertain_delivery'
+            elif state in ('review_pending','ready_for_review'): required = 'review_result_do_not_redeliver'
+            elif pre_dispatch and not thread_busy: required = 'resume_before_dispatch'
+            elif state in ('dispatching','dispatch_pending','dispatch_uncertain'): required = 'reconcile_exact_request'
+            elif state == 'blocked': required = 'inspect_blocker_do_not_retry'
+            elif state == 'delivered': required = 'none'
+            elif thread_busy: required = 'thread_busy_do_not_claim'
+            elif expired: required = 'verify_successor_ownership_then_resume'
+            else: required = 'resume_same_operation'
+            safe_to_claim = bool(expired and not thread_busy and pre_dispatch)
+            row = {key: record[key] for key in (
+                'operationId','method','state','owner','generation','environmentId','clientRequestId',
+                'threadId','runId','originRunId','lineageRunIds','dispatchAttempted',
+                'startPosition','lastReadPosition','waits','resultRunId','handledResultRunIds',
+                'verifiedResultRunIds','continuationEvidenceRef','errorCode','taskComplete','receiptId',
+                'ttlSeconds','leaseUntil','updatedAt') if key in record}
+            row.update(leaseExpired=expired, leaseAvailable=expired, threadBusy=thread_busy,
+                blockingOperationIds=[other['operationId'] for other in blockers],
+                blockingOwnerIds=[other.get('owner') for other in blockers if other.get('owner')],
+                safeToClaim=safe_to_claim, requiredAction=required)
+            rows.append(row)
+        summary = {}
+        for row in rows: summary[row['requiredAction']] = summary.get(row['requiredAction'], 0) + 1
+        return {'ok': True, 'now': now, 'count': len(rows), 'summary': summary, 'records': rows}
+
     def execute(self, request):
         require(isinstance(request, dict))
         action = request.get('action')
         require(action in KEYS and not set(request) - KEYS[action])
-        if action != 'list':
+        if action not in ('list','inventory'):
             require(identifier(request.get('operationId')))
-        if action in ('read','list'):
+        if action in ('read','list','inventory'):
             records = self.snapshot()['records']
             if action == 'list':
                 return {'records':list(records.values())}
+            if action == 'inventory':
+                return self.inventory(records, self.now())
             require(request['operationId'] in records, 'not_found')
             return {'record':records[request['operationId']]}
         with self.locked() as data:
@@ -142,13 +193,15 @@ class Journal:
                         require(type(context['startPosition']) is int and context['startPosition'] >= -1)
                     # Store only digest of context: acceptance criteria may include private text.
                     digest = hashlib.sha256(json.dumps({'method':method,'args':args}, sort_keys=True, separators=(',',':'), allow_nan=False).encode()).hexdigest()
+                    context_digest = hashlib.sha256(json.dumps(context,sort_keys=True,allow_nan=False).encode()).hexdigest()
                     for other_op, other in records.items():
                         if other_op != op and other.get('environmentId') == args['environmentId'] and other.get('method') == method and other.get('clientRequestId') == args['clientRequestId']:
                             raise JournalError('request_key_in_use')
                     if record:
                         require(record['requestHash'] == digest, 'request_mismatch')
+                        require(record.get('contextHash') == context_digest, 'context_mismatch')
                     else:
-                        record = {'operationId':op,'method':method,'requestHash':digest,'contextHash':hashlib.sha256(json.dumps(context,sort_keys=True,allow_nan=False).encode()).hexdigest(),'environmentId':args['environmentId'],'clientRequestId':args['clientRequestId'],'state':'dispatch_pending','dispatchAttempted':False,'generation':0,'leaseUntil':0,'taskComplete':False}
+                        record = {'operationId':op,'method':method,'requestHash':digest,'contextHash':context_digest,'environmentId':args['environmentId'],'clientRequestId':args['clientRequestId'],'state':'dispatch_pending','dispatchAttempted':False,'generation':0,'leaseUntil':0,'taskComplete':False}
                         if 'parentTask' in context:
                             record['parentTask'] = context['parentTask']
                         if 'startPosition' in context:
@@ -166,6 +219,7 @@ class Journal:
             if action == 'checkpoint':
                 fields = request.get('fields')
                 require(isinstance(fields,dict) and not set(fields) - FIELDS)
+                require(not set(fields) & {'originRunId','lineageRunIds'}, 'lineage_controlled')
                 self.validate_fields(fields)
                 if fields.get('verifiedResultRunIds'):
                     require(identifier(fields.get('continuationEvidenceRef')), 'continuation_proof_required')
@@ -173,11 +227,40 @@ class Journal:
                 for key in IDS - {'resultRunId'}:
                     if key in fields and record.get(key) is not None:
                         require(fields[key] == record[key], 'identity_changed')
+                if 'startPosition' in fields and record.get('startPosition') is not None:
+                    require(fields['startPosition'] == record['startPosition'], 'start_position_changed')
                 if 'dispatchAttempted' in fields:
                     require(fields['dispatchAttempted'] is True and record['dispatchAttempted'] is False, 'dispatch_already_attempted')
                 candidate = {**record, **fields}
                 self.thread_available(records, candidate, op, now)
                 record.update(fields)
+            elif action == 'adopt':
+                target = request.get('runId'); evidence = request.get('evidenceRef')
+                require(identifier(target) and identifier(evidence))
+                require(record.get('threadId') and record.get('runId'), 'not_accepted')
+                require(record['state'] not in ('delivery_pending','delivery_uncertain','delivered'), 'delivery_locked')
+                require(target in (record.get('verifiedResultRunIds') or []), 'successor_not_verified')
+                require(record.get('continuationEvidenceRef') == evidence, 'continuation_proof_required')
+                origin = record.get('originRunId') or record['runId']
+                lineage = list(record.get('lineageRunIds') or [])
+                if origin not in lineage: lineage.append(origin)
+                if record['runId'] not in lineage: lineage.append(record['runId'])
+                if target not in lineage: lineage.append(target)
+                record['originRunId'] = origin
+                record['lineageRunIds'] = lineage
+                record['runId'] = target
+                # Adoption is one durable transition: no stale result may survive
+                # alongside the successor run if the process dies before read.
+                record['state'] = 'watching'
+                record['resultRunId'] = None
+                record['taskComplete'] = False
+                record['waits'] = 0
+                if 'startPosition' in record:
+                    record['lastReadPosition'] = record['startPosition']
+                record.pop('errorCode', None)
+                candidate = {**record}
+                self.thread_available(records, candidate, op, now)
+                record.update(candidate)
             elif action == 'delivery':
                 state = request.get('state')
                 allowed = {'review_pending':{'delivery_pending'},'ready_for_review':{'delivery_pending'},'delivery_pending':{'delivered','delivery_uncertain'}}
@@ -213,8 +296,10 @@ class Journal:
                 require(value is None or type(value) is int and value >= -1)
             elif key in ('waits','attempt'):
                 require(type(value) is int and value >= 0)
-            elif key in ('handledResultRunIds','verifiedResultRunIds'):
+            elif key in ('handledResultRunIds','verifiedResultRunIds','lineageRunIds'):
                 require(isinstance(value,list) and len(value) <= 10000 and all(identifier(v) for v in value))
+            elif key == 'originRunId':
+                require(identifier(value))
             elif key == 'taskComplete':
                 require(value is False)
             elif key == 'dispatchAttempted':
