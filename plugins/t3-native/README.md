@@ -32,16 +32,18 @@ The submodule is pinned to the exact commit. It is not a vendored copy and is no
 
 ## Native connector setup
 
-1. In T3, open **Settings -> Environments**.
-2. Open a saved environment and choose **Copy MCP URL**.
-3. Use `https://<environment-address>/mcp`.
-4. Choose OAuth. No client ID or secret is required.
-5. Approve the sign-in with a pairing code from **Settings -> Sharing & access** or `t3 auth pairing create`.
-6. Choose **Read only**, **Supervised**, or **Full access**.
+New installation? Start with the [first-install quickstart](QUICKSTART.md). It contains the shortest hosted-assistant path, the older-server fallback, and common failure fixes. Use the [setup and read-only preflight guide](SETUP_AND_PREFLIGHT.md) for the detailed wizard, consent, and preflight behavior. The [connection choices comparison](CONNECTION_MODES.md) separates transport, URL discovery, and consent-page choices, and explains what does not change.
 
-For ChatGPT, create a custom MCP app, set the server URL to the T3 Connect HTTPS URL ending in `/mcp`, choose OAuth, and approve the sign-in.
+The working cloud plugin already controls T3 directly; no local GPT/Codex session is required as a relay. T3 workers still use their selected model provider.
 
-Agents on the same device may use `localhost`, T3 Connect, or another HTTPS address. Plain HTTP LAN or tailnet addresses are not suitable for sign-in.
+The quickstart offers an optional offline helper for developers. It classifies a copied MCP URL and the setup UI you observed, without contacting a server and without echoing the URL:
+
+```sh
+node plugins/t3-native/setup-readiness.mjs '<mcp-url>' --agent hosted \
+  --discovery wizard --approval hosted
+```
+
+It reports URL shape, the likely setup path, and actionable fixes. It does not prove reachability, consent, access level, or write permission. Confirm a normal install with a simple read in the client; the read-only preflight is optional advanced verification through an existing connector callback.
 
 ## Observed operations
 
